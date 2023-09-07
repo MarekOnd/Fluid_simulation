@@ -1,6 +1,6 @@
 import numpy as np
 
-OMEGA = 0.5
+OMEGA = 1.1
 
 E = np.array([
     [0,0],
