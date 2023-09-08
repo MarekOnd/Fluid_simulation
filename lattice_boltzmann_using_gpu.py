@@ -2,7 +2,7 @@ import cv2 as cv
 import numpy as np
 from numba import cuda
 
-import timeit
+import time
 
 from constants import *
 
@@ -15,48 +15,92 @@ def main():
 
 def start_visualization():
     cv.namedWindow('Output',cv.WINDOW_NORMAL)
-    X = 100
-    Y = 200
-    densitiesGrid = np.ones((9,X,Y))/9
+    X = 500
+    Y = 500
+    densitiesGrid = np.zeros((9,X,Y),dtype=float)
+    # Initial velocity - Wind tunnel
+    densitiesGrid[1,:,:] = np.ones((X,Y),dtype=float)/20
+
+    # Adds objects
     objectsGrid = np.zeros((X,Y),dtype=bool)
     add_sphere_to_array(objectsGrid, (100, 50), 5)
     add_sphere_to_array(objectsGrid, (20, 70), 7)
-    add_sphere_to_array(objectsGrid, (50, 70),5)
-    add_sphere_to_array(objectsGrid, (750, 50), 15)
-    velocitiesOut = np.zeros((2,X,Y))
-    gpuDensitiesGrid = cuda.to_device(densitiesGrid)
+    add_sphere_to_array(objectsGrid, (50, 70),10)
+    add_sphere_to_array(objectsGrid, (400, 100), 20)
 
-    blockSize = (32,32)
+    # Adds inputs and outputs
+    flowGrid = np.zeros((9,X,Y),dtype=float)
+    flowGrid[1,10:X-10,0] = np.ones(X-20)/100
+    flowGrid[:,0:X,Y-1] = -np.ones((9,X))*10
+    
+
+    # Velocity array for visualization
+    velocities = np.zeros((2,X,Y),dtype=float)
+    velocitiesOutput = cuda.to_device(velocities)
+
+
+
+    blockSize = (8,8)
     gridSize = (
         int(np.ceil(densitiesGrid.shape[1]/blockSize[0])),
         int(np.ceil(densitiesGrid.shape[2]/blockSize[1]))
     )
-    for i in np.arange(0,10000):
-        densitiesGrid[:,:,190:Y]-=densitiesGrid[:,:,190:Y]
-        if i < 2000:
-            densitiesGrid[1,0:X,0] += np.array([0.1 for i in np.arange(0,X)]) # flow
-            #arr[:,250,250]= np.array([0.5 for i in np.arange(0,9)]) #
+
+    # Send the densities grids to device
+    densitiesGridInput = cuda.to_device(densitiesGrid)
+    densitiesGridOutput = cuda.to_device(densitiesGrid)
+
+    # Initialize constant memory on GPU
+    objectsGridDeviceArray = cuda.to_device(objectsGrid)
+    flowGridDeviceArray = cuda.to_device(flowGrid)
+
+
+    startTime = time.time()
+    i = 1
+    ITERATIONS = 1000000
+    while i < ITERATIONS:
         
-        equilibrium_update_densities_array[gridSize,blockSize](densitiesGrid, gpuDensitiesGrid, velocitiesOut)
-        densitiesGrid = gpuDensitiesGrid.copy_to_host()
-        move_update_densities_array[gridSize,blockSize](densitiesGrid, gpuDensitiesGrid, objectsGrid)
-        densitiesGrid = gpuDensitiesGrid.copy_to_host()
-        if i%15 == 0:
+        equilibrium_update_densities_array[gridSize,blockSize](densitiesGridInput,
+                                                               densitiesGridOutput,
+                                                               objectsGridDeviceArray,
+                                                               flowGridDeviceArray,
+                                                               velocitiesOutput)
+        densitiesGridInput.copy_to_device(densitiesGridOutput)
+        move_update_densities_array[gridSize,blockSize](densitiesGridInput,
+                                                        densitiesGridOutput,
+                                                        objectsGridDeviceArray,
+                                                        flowGridDeviceArray)
+        densitiesGridInput.copy_to_device(densitiesGridOutput)
+        if i%50 == 0:
             #show_array(densitiesGrid[1,:,:])
-            #show_array(np.sum(densitiesGrid,axis=0))
-            velNorm = np.sqrt((velocitiesOut[0,:,:]*velocitiesOut[0,:,:]+velocitiesOut[1,:,:]*velocitiesOut[1,:,:]))
-            show_array(velNorm/np.max(velNorm)*6)
-            print(f'frame: {i}, mass: {np.sum(densitiesGrid)}', end='                               \r')
+            #show_array(np.sum(densitiesGridOutput.copy_to_host(),axis=0))
+
+            velocitiesOutput.copy_to_host(velocities)
+            
+            #velNorm = np.sqrt((velocities[0,:,:]*velocities[0,:,:]+velocities[1,:,:]*velocities[1,:,:]))
+            #show_array(velNorm*1000)
+            show_arrays(velocities[0,:,:]*1000,velocities[1,:,:]*1000)
+
+            elapsedTime = time.time() - startTime
+            framerate = i/elapsedTime
+
+
+            print(f'Frame: {i}, Elapsed time: {elapsedTime}, FPS: {framerate}, Mass: {np.sum(densitiesGridInput.copy_to_host())},', end='                                      \r')
+        i += 1
     pass
 
 
 @cuda.jit
-def move_update_densities_array(densitiesGrid, movedDensitiesGrid, objectsGrid):
+def move_update_densities_array(densitiesGrid,
+                                movedDensitiesGrid,
+                                objectsGrid,
+                                flowGrid):
     x, y = cuda.grid(2)
     if x < densitiesGrid.shape[1] and y < densitiesGrid.shape[2] and not objectsGrid[x,y]:
         i = 0
         while i < 9:
             density = 0
+            
             xSource = x - E[i,0]
             ySource = y - E[i,1]
             if xSource >= 0 and xSource < densitiesGrid.shape[1]:
@@ -72,14 +116,22 @@ def move_update_densities_array(densitiesGrid, movedDensitiesGrid, objectsGrid):
                 else: # x,y is out of bounds, mirroring x,y
                     density += densitiesGrid[XYMIRR[i],xSource,y]
                     pass
-                
+            
+            density += flowGrid[i,x,y]
+            if density < 0:
+                density = 0
+
             movedDensitiesGrid[i,x,y] = density
             i+=1
 
 @cuda.jit
-def equilibrium_update_densities_array(densitiesGrid, equalizedDensitiesGrid, velocitiesOut):
+def equilibrium_update_densities_array(densitiesGrid,
+                                       equalizedDensitiesGrid,
+                                       objectsGrid,
+                                       flowGrid,
+                                       velocitiesOut):
     x, y = cuda.grid(2)
-    if x < densitiesGrid.shape[1] and y < densitiesGrid.shape[2]:
+    if x < densitiesGrid.shape[1] and y < densitiesGrid.shape[2] and not objectsGrid[x,y]:
         ux = 0
         uy = 0
         rho = 0
@@ -106,10 +158,17 @@ def equilibrium_update_densities_array(densitiesGrid, equalizedDensitiesGrid, ve
 def show_array(array):
     image = np.zeros(shape=(array.shape[0],array.shape[1],3))
     image[:,:,0] = array%1
-    image[:,:,1] = array/2%1
-    image[:,:,2] = array/3
+    image[:,:,1] = array%0.85
+    image[:,:,2] = array%0.74
     cv.imshow('Output', image)
-    cv.waitKey(1)
+    cv.waitKey(5)
+def show_arrays(array1, array2):
+    image = np.zeros(shape=(array1.shape[0],array1.shape[1],3))
+    image[:,:,0] = array1
+    image[:,:,1] = array2
+
+    cv.imshow('Output', image)
+    cv.waitKey(5)
 
 def add_sphere_to_array(arr, center, radius):
     for x in np.arange(0,arr.shape[0]):

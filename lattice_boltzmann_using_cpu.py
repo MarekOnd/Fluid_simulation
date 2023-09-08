@@ -45,7 +45,7 @@ W = np.array([
     1/36
 ],dtype=float)
 
-OMEGA = 1.2
+OMEGA = 0.5
 
 def create_densities_array(size = 20):
     return np.zeros(shape=(9,size,size))
