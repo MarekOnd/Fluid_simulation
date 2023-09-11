@@ -19,18 +19,6 @@ E = np.array([
     [-1,1]
 ],dtype=int)
 
-INV = np.array([
-    0,
-    2,
-    1,
-    4,
-    3,
-    6,
-    5,
-    8,
-    7
-])
-
 W = np.array([
     4/9,
     # Sides

@@ -1,6 +1,6 @@
 import numpy as np
 
-from useful_functions import add_circle_to_array
+from modules.useful_functions import add_circle_to_array
 
 def get_initial_conditions(name, X, Y):
     match name:
@@ -14,7 +14,6 @@ def get_initial_conditions(name, X, Y):
 
             # Adds inputs and outputs
             flowGrid = np.zeros((9,X,Y),dtype=float)
-            add_circle_to_array(flowGrid[0,:,:], (150, 150), 20)
             flowGrid/=50
             flowGrid[1,0:X,0] = np.ones(X)/20
             flowGrid[:,0:X,Y-1] = -np.ones((9,X))*100

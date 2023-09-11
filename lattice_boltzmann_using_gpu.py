@@ -9,11 +9,11 @@ import time
 from numba.cuda.cudadrv.devicearray import DeviceNDArray
 
 # Internal libraries
-from constants import *
+from modules.constants import *
 
-from useful_functions import add_circle_to_array
-from useful_functions import show_array, show_two_arrays, show_three_arrays
-from initial_conditions import get_initial_conditions
+from modules.useful_functions import add_circle_to_array
+from modules.useful_functions import show_array, show_two_arrays, show_three_arrays
+from modules.initial_conditions import get_initial_conditions
 
 
 
