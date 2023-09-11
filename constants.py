@@ -1,6 +1,10 @@
 import numpy as np
+import math
 
 OMEGA = 1.1
+
+EPS = math.ulp(1.0)**4
+
 
 E = np.array([
     [0,0],
