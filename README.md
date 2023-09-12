@@ -1,6 +1,6 @@
 # Fluid simulation using LBM
 
-A Python script for simulating fluid dynamics in 2D using **Lattice Boltzmann method** on GPU using **CUDA** library.
+A Python script for simulating fluid dynamics in 2D using **Lattice Boltzmann method** on GPU with **CUDA** library.
 
 ### Fluid flow around the wing profile
 ![Wing](images/Preview_wing.png)
